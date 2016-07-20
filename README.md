@@ -1,3 +1,5 @@
+[![Code Climate](https://codeclimate.com/github/T-Maxxx/NinjaRipperMayaImportTools/badges/gpa.svg)](https://codeclimate.com/github/T-Maxxx/NinjaRipperMayaImportTools)
+[![Issue Count](https://codeclimate.com/github/T-Maxxx/NinjaRipperMayaImportTools/badges/issue_count.svg)](https://codeclimate.com/github/T-Maxxx/NinjaRipperMayaImportTools)
 # NinjaRipperMayaImportTools
 This plugin allows you to import .rip files captured with NinjaRipper directly to Autodesk Maya
 

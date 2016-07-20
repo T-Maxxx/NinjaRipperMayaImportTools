@@ -105,16 +105,35 @@ def readRIPHeader(f):
     return struct.unpack('<LLLLLLLL', f.read(32))[0]
 
 
-def readRIPVertexAttrib(f, count):
+def updatePositionIndexes(base, updateRequired):
     global g_PosX_Idx
     global g_PosY_Idx
     global g_PosZ_Idx
+    if updateRequired == True:
+        g_PosX_Idx = base
+        g_PosY_Idx = base + 1
+        g_PosZ_Idx = base + 2
+    return False;
+
+def updateNormalIndexes(base, updateRequired):
     global g_NormX_Idx
     global g_NormY_Idx
     global g_NormZ_Idx
+    if updateRequired == True:
+        g_NormX_Idx = base
+        g_NormY_Idx = base + 1
+        g_NormZ_Idx = base + 2
+    return False;
+
+def updateTexCoordIndexes(base, updateRequired):
     global g_Tc0_U_Idx
     global g_Tc0_V_Idx
+    if updateRequired == True:
+        g_Tc0_U_Idx = base
+        g_Tc0_V_Idx = base + 1
+    return False;
 
+def readRIPVertexAttrib(f, count):
     result = []
 
     isPosIdxSet = False
@@ -130,26 +149,15 @@ def readRIPVertexAttrib(f, count):
         for j in range(typeMapElements):
             result.append(readULong(f))
 
-        # TODO: split it
-        # Recognize semantic if "AUTO" set.
-        if g_VertexFormatRecog == 0:  # AUTO recognition.
-            if semantic == "POSITION":  # Get as "XYZ_".
-                if isPosIdxSet == False:
-                    g_PosX_Idx = offset / 4
-                    g_PosY_Idx = g_PosX_Idx + 1
-                    g_PosZ_Idx = g_PosX_Idx + 2
-                    isPosIdxSet = True
-            elif semantic == "NORMAL":
-                if isNormalIdxSet == False:
-                    g_NormX_Idx = offset / 4
-                    g_NormY_Idx = g_NormX_Idx + 1
-                    g_NormZ_Idx = g_NormX_Idx + 2
-                    isNormalIdxSet = True
-            elif semantic == "TEXCOORD":
-                if isTexCoordSet == False:
-                    g_Tc0_U_Idx = offset / 4
-                    g_Tc0_V_Idx = g_Tc0_U_Idx + 1
-                    isTexCoordSet = True
+        if g_VertexFormatRecog != 0: # AUTO recognition.
+            continue
+
+        if semantic == "POSITION":
+            isPosIdxSet = updatePositionIndexes(offset / 4, isPosIdxSet)
+        elif semantic == "NORMAL":
+            isNormalIdxSet = updateNormalIndexes(offset / 4, isNormalIdxSet)
+        elif semantic == "TEXCOORD":
+            isTexCoordSet = updateTexCoordIndexes(offset / 4, isTexCoordSet)
     return result
 
 
@@ -234,6 +242,9 @@ def readRIPVertexes(f, count, vertAttrib):
     return result
 
 
+def isFileReadCorrect(h, v, f):
+    return h[3] == v[0].length() and h[2] == f.length() / 3
+
 def importRip(path):
     global g_VertexFormatRecog
     global mdlscaler
@@ -314,13 +325,12 @@ def importRip(path):
     if TextureFiles:
         textureFile = TextureFiles[g_Tex0_FileLev]
 
-    if header[3] == VertexData[0].length():  # Vertex count equal
-        if header[2] == Face_array.length() / 3:  # Faces count equal
-            ImportToMaya(
-                VertexData[0], Face_array, [VertexData[2], VertexData[3]],
-                os.path.dirname(path), textureFile
-            )
-            return
+    if isFileReadCorrect(header, VertexData, Face_array):
+        ImportToMaya(
+            VertexData[0], Face_array, [VertexData[2], VertexData[3]],
+            os.path.dirname(path), textureFile
+        )
+        return
     printMessage("File reading error: incomplete vertex/faces arrays.")
 
 

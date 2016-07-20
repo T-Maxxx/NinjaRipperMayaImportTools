@@ -14,7 +14,6 @@ RipFileVersion = 4
 InitialDirectory = ""
 
 # Global vars.
-g_VertexFormatRecog = 0  # Auto/Manual  (0,1).
 g_Tex0_FileLev = 0
 
 g_Mesh_Index = 0  # For renaming purposes.
@@ -26,6 +25,7 @@ VertexLayout = {
     'posUpdated': False,
     'nmlUpdated': False,
     'uvUpdated': False,
+    'autoMode': True
 }
 
 # Globals additional.
@@ -136,7 +136,7 @@ def readRIPVertexAttrib(f, count):
 
         vertexAttributes.append([semantic, offset / 4])
 
-    if g_VertexFormatRecog == 0:  # AUTO recognition.
+    if VertexLayout['autoMode'] is True:  # AUTO recognition.
         applyRecognitionLogic(vertexAttributes)
 
     return result
@@ -216,7 +216,7 @@ def isFileReadCorrect(h, v, f):
 
 
 def importRip(path):
-    global g_VertexFormatRecog
+    global VertexLayout
     global mdlscaler
     global uvscaler
     global g_flipUV
@@ -277,7 +277,7 @@ def importRip(path):
         # [3] - VArray
 
         print("---------Importing RIP file---------------------")
-        print("g_VertexFormatRecog = {}".format(g_VertexFormatRecog))
+        print("VertexLayout['autoMode'] = {}".format(VertexLayout['autoMode']))
         print("VertexLayout['pos'][0] = {}".format(VertexLayout['pos'][0]))
         print("VertexLayout['pos'][1] = {}".format(VertexLayout['pos'][1]))
         print("VertexLayout['pos'][2] = {}".format(VertexLayout['pos'][2]))
@@ -381,11 +381,11 @@ def ImportToMaya(vertexArray, polygonConnects, uvArray, texturePath, texture):
 
 
 def changeVertexRecognition(isManual):
-    global g_VertexFormatRecog
-    g_VertexFormatRecog = int(state)
+    global VertexLayout
+    VertexLayout['autoMode'] = isManual is False
     cmds.frameLayout('NR_VertexLayout_Position', edit=True, en=False)
-    cmds.frameLayout('NR_VertexLayout_Normal', edit=True, en=state)
-    cmds.frameLayout('NR_VertexLayout_TexCoord', edit=True, en=state)
+    cmds.frameLayout('NR_VertexLayout_Normal', edit=True, en=isManual)
+    cmds.frameLayout('NR_VertexLayout_TexCoord', edit=True, en=isManual)
 
 
 def onImportButtonPressed():
@@ -416,7 +416,7 @@ def onImportButtonPressed():
 
     g_normalizeUV = cmds.checkBox('NR_MiscNormalizeUV', query=True, v=True)
 
-    if g_VertexFormatRecog == 1:
+    if VertexLayout['autoMode'] is False:
         VertexLayout['pos'][0] = cmds.intField(
             'NR_VertexLayout_PosX', query=True, v=True
         )
@@ -647,7 +647,7 @@ def createImportWindow():
 
 
 def loadOptions():
-    global g_VertexFormatRecog
+    global VertexLayout
     global InitialDirectory
 
     global VertexLayout
@@ -662,7 +662,7 @@ def loadOptions():
     global g_flipUV
     global g_normalizeUV
 
-    g_VertexFormatRecog = regReadDword('NR_VertexRecognition')
+    VertexLayout['autoMode'] = regReadBool('NR_AutoMode')
     InitialDirectory = regReadString('InitialDirectory')
 
     # VertexLayout['pos'][0] = regReadDword('NR_VertexLayout_PosX')
@@ -714,16 +714,16 @@ def loadOptions():
 
     cmds.checkBox('NR_MiscNormalizeUV', edit=True, v=g_normalizeUV)
 
-    if g_VertexFormatRecog == 0:
+    if VertexLayout['autoMode'] is True:
         cmds.radioButton('NR_VertexRecognitionAuto', edit=True, sl=True)
-        onAutoButtonPressed()
+        changeVertexRecognition(False)
     else:
         cmds.radioButton('NR_VertexRecognitionManual', edit=True, sl=True)
-        onManualButtonPressed()
+        changeVertexRecognition(True)
 
 
 def saveOptions():
-    regSetDword("NR_VertexRecognition", g_VertexFormatRecog)
+    regSetBool("NR_AutoMode", VertexLayout['autoMode'])
     regSetString("InitialDirectory", InitialDirectory)
 
     # regSetDword("NR_VertexLayout_PosX", VertexLayout['pos'][0])
@@ -750,14 +750,16 @@ def setupRegister():
     try:
         RegisterKey = reg.OpenKey(
             reg.HKEY_CURRENT_USER,
-            "SOFTWARE\\Autodesk\\MayaPlugins\\NinjaRipperMayaImportTools"
+            "SOFTWARE\\Autodesk\\MayaPlugins\\NinjaRipperMayaImportTools",
+            0,
+            reg.KEY_ALL_ACCESS
         )
     except WindowsError:
         RegisterKey = reg.CreateKey(
             reg.HKEY_CURRENT_USER,
             "SOFTWARE\\Autodesk\\MayaPlugins\\NinjaRipperMayaImportTools"
         )
-        regSetDword("NR_VertexRecognition", 0)
+        regSetBool("NR_AutoMode", True)
         regSetString("InitialDirectory", "")
         # regSetDword("NR_VertexLayout_PosX", 0)
         # regSetDword("NR_VertexLayout_PosY", 1)

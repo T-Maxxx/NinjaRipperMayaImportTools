@@ -101,10 +101,11 @@ def regSetBool(keyName, val):
     regSetDword(keyName, 1 if val else 0)
 
 
-def importRip(path):
-    global RipSignature
-    global RipFileVersion
-    global g_VertexFormatRecog
+def readRIPHeader(f):
+    return struct.unpack('<LLLLLLLL', f.read(32))[0]
+
+
+def readRIPVertexAttrib(f, count):
     global g_PosX_Idx
     global g_PosY_Idx
     global g_PosZ_Idx
@@ -113,16 +114,146 @@ def importRip(path):
     global g_NormZ_Idx
     global g_Tc0_U_Idx
     global g_Tc0_V_Idx
+
+    result = []
+
+    isPosIdxSet = False
+    isNormalIdxSet = False
+    isTexCoordSet = False
+
+    for i in range(count):
+        semantic = readString(f)
+        semanticIndex = readULong(f)
+        offset = readULong(f)
+        size = readULong(f)
+        typeMapElements = readULong(f)
+        for j in range(typeMapElements):
+            result.append(readULong(f))
+
+        # TODO: split it
+        # Recognize semantic if "AUTO" set.
+        if g_VertexFormatRecog == 0:  # AUTO recognition.
+            if semantic == "POSITION":  # Get as "XYZ_".
+                if isPosIdxSet == False:
+                    g_PosX_Idx = offset / 4
+                    g_PosY_Idx = g_PosX_Idx + 1
+                    g_PosZ_Idx = g_PosX_Idx + 2
+                    isPosIdxSet = True
+            elif semantic == "NORMAL":
+                if isNormalIdxSet == False:
+                    g_NormX_Idx = offset / 4
+                    g_NormY_Idx = g_NormX_Idx + 1
+                    g_NormZ_Idx = g_NormX_Idx + 2
+                    isNormalIdxSet = True
+            elif semantic == "TEXCOORD":
+                if isTexCoordSet == False:
+                    g_Tc0_U_Idx = offset / 4
+                    g_Tc0_V_Idx = g_Tc0_U_Idx + 1
+                    isTexCoordSet = True
+    return result
+
+
+def readRIPStrings(f, count):
+    result = []
+    for i in range(count):
+        result.append(readString(f))
+
+    return result
+
+
+def readRIPFaces(f, count):
+    faceArray = OpenMaya.MIntArray()
+    for i in range(count):
+        data = struct.unpack('LLL', f.read(12))
+        for j in range(3):
+            result.append(data[j])
+
+    return faceArray
+
+
+def readRIPVertexes(f, count, vertAttrib):
+    result = []
+
+    Vert_array = OpenMaya.MFloatPointArray()
+    Normal_array = []
+    UArray = OpenMaya.MFloatArray()
+    VArray = OpenMaya.MFloatArray()
+
+    for i in range(count):
+        vx = 0.0
+        vy = 0.0
+        vz = 0.0
+        vw = 0.0
+        nx = 0.0
+        ny = 0.0
+        nz = 0.0
+        tu = 0.0
+        tv = 0.0
+        for j in range(len(vertAttrib)):
+            ElementType = vertAttrib[j]
+            if ElementType == 0:  # EFLOAT.
+                z = readFloat(f)
+            elif ElementType == 1:  # EUINT.
+                z = readULong(f)
+            elif ElementType == 2:  # ESINT.
+                z = readLong(f)
+            else:
+                z = readULong(f)
+
+            if j == g_PosX_Idx:
+                vx = float(z)
+            if j == g_PosY_Idx:
+                vy = float(z)
+            if j == g_PosZ_Idx:
+                vz = float(z)
+            if j == g_NormX_Idx:
+                nx = float(z)
+            if j == g_NormY_Idx:
+                ny = float(z)
+            if j == g_NormZ_Idx:
+                nz = float(z)
+            if j == g_Tc0_U_Idx:
+                tu = float(z)
+            if j == g_Tc0_V_Idx:
+                tv = 1 - float(z)
+
+        Vert_array.append(vx, vy, vz)
+        Normal_array.append([nx, ny, nz])
+        UArray.append(tu)
+        VArray.append(tv)
+
+    # VertexData:
+    # [0] - Vert_array
+    # [1] - Normal_array
+    # [2] - UArray
+    # [3] - VArray
+    result.append(Vert_array)
+    result.append(Normal_array)
+    result.append(UArray)
+    result.append(VArray)
+    return result
+
+
+def importRip(path):
+    global g_VertexFormatRecog
     global mdlscaler
     global uvscaler
     global g_flipUV
     global g_Tex0_FileLev
 
     with open(path, "rb") as f:
-        signature = readULong(f)
-        version = readULong(f)
+        header = readRIPHeader(f)
+        # Header:
+        # [0] - signature
+        # [1] - version
+        # [2] - dwFacesCnt
+        # [3] - dwVertexesCnt
+        # [4] - VertexSize
+        # [5] - TextureFilesCnt
+        # [6] - ShaderFilesCnt
+        # [7] - VertexAttributesCnt
 
-        if signature != RipSignature or version != RipFileVersion:
+        if header[0] != RipSignature or header[1] != RipFileVersion:
             printMessage(
                 "Expected signature '{}' (got '{}')".format(
                     RipSignature, signature
@@ -138,72 +269,32 @@ def importRip(path):
             printMessage("File '{}' is nor a RIP file".format(path))
             return
 
-        dwFacesCnt = readULong(f)
-        dwVertexesCnt = readULong(f)
-        VertexSize = readULong(f)
-        TextureFilesCnt = readULong(f)
-        ShaderFilesCnt = readULong(f)
-        VertexAttributesCnt = readULong(f)
-
         # print("*****ImportRip() File: " + path)
         # print("dwFacesCnt=" + str(dwFacesCnt))
         # print("dwVertexesCnt=" + str(dwVertexesCnt))
         # print("VertexAttributesCnt=" + str(VertexAttributesCnt))
 
-        VertexAttribTypesArray = []  # Contain all types.
-        TextureFiles = []
-        ShaderFiles = []
-
-        Face_array = OpenMaya.MIntArray()
         Normal_array = []
         Vert_array = OpenMaya.MFloatPointArray()
         UArray = OpenMaya.MFloatArray()
         VArray = OpenMaya.MFloatArray()
 
-        # Get only first index attribute flag.
-        TempPosIdx = 0
-        TempNormalIdx = 0
-        TempTexCoordIdx = 0
-
         # Read vertex attributes.
-        for i in range(VertexAttributesCnt):
-            Semantic = readString(f)
-            SemanticIndex = readULong(f)
-            Offset = readULong(f)
-            Size = readULong(f)
-            TypeMapElements = readULong(f)
-            for j in range(TypeMapElements):
-                TypeElement = readULong(f)
-                VertexAttribTypesArray.append(TypeElement)
+        VertexAttribTypesArray = readRIPVertexAttrib(f, header[7])
+        # Read textures list (if present).
+        TextureFiles = readRIPTextures(f, header[5])
+        # Read shader list (if present).
+        ShaderFiles = readRIPTextures(f, header[6])
+        # Read mesh faces.
+        Face_array = readRIPFaces(f, header[2])
+        # Read vertexes data.
+        VertexData = readRIPVertexes(f, header[3], VertexAttribTypesArray)
+        # VertexData:
+        # [0] - Vert_array
+        # [1] - Normal_array
+        # [2] - UArray
+        # [3] - VArray
 
-            # print("------------")
-            # print("Semantic=" + Semantic)
-            # print("SemanticIndex=" + str(SemanticIndex))
-            # print("Offset=" + str(Offset))
-            # print("Size=" + str(Size))
-            # print("TypeMapElements=" + str(TypeMapElements))
-
-            # Recognize semantic if "AUTO" set.
-            if g_VertexFormatRecog == 0:  # AUTO recognition.
-                if Semantic == "POSITION":  # Get as "XYZ_".
-                    if TempPosIdx == 0:
-                        g_PosX_Idx = Offset / 4
-                        g_PosY_Idx = g_PosX_Idx + 1
-                        g_PosZ_Idx = g_PosX_Idx + 2
-                        TempPosIdx = 1
-                elif Semantic == "NORMAL":
-                    if TempNormalIdx == 0:
-                        g_NormX_Idx = Offset / 4
-                        g_NormY_Idx = g_NormX_Idx + 1
-                        g_NormZ_Idx = g_NormX_Idx + 2
-                        TempNormalIdx = 1
-                elif Semantic == "TEXCOORD":
-                    if TempTexCoordIdx == 0:
-                        g_Tc0_U_Idx = Offset / 4
-                        g_Tc0_V_Idx = g_Tc0_U_Idx + 1
-                        TempTexCoordIdx = 1
-
-        # print("-----------------------------")
         print("---------Importing RIP file---------------------")
         print("g_VertexFormatRecog = {}".format(g_VertexFormatRecog))
         print("g_PosX_Idx = {}".format(g_PosX_Idx))
@@ -218,92 +309,16 @@ def importRip(path):
         print("uvscaler = {}".format(uvscaler))
         print("g_Tex0_FileLev = {}".format(g_Tex0_FileLev))
         print("g_flipUV = {}".format(g_flipUV))
-        # Read texture files list to array ( if present ).
-        for i in range(TextureFilesCnt):
-            TexFile = readString(f)
-            TextureFiles.append(TexFile)
 
-        # Read shader files list to array ( if present ).
-        for i in range(ShaderFilesCnt):
-            ShaderFile = readString(f)
-            ShaderFiles.append(ShaderFile)
+    textureFile = "setka.png"
+    if TextureFiles:
+        textureFile = TextureFiles[g_Tex0_FileLev]
 
-        # print("Texture Files:")
-        # for i in range(TextureFilesCnt):
-        #    print(TextureFiles[i])
-        # print("------------")
-
-        # Read indexes.
-        for i in range(dwFacesCnt):
-            Face_array.append(readULong(f))
-            Face_array.append(readULong(f))
-            Face_array.append(readULong(f))
-
-        # print("PosX idx: " + str(g_PosX_Idx))
-        # print("PosY idx: " + str(g_PosY_Idx))
-        # print("PosZ idx: " + str(g_PosZ_Idx))
-        # print("NormX idx: " + str(g_NormX_Idx))
-        # print("NormY idx: " + str(g_NormY_Idx))
-        # print("NormZ idx: " + str(g_NormZ_Idx))
-        # print("Tu0 idx: " + str(g_Tc0_U_Idx))
-        # print("Tv0 idx: " + str(g_Tc0_V_Idx))
-
-        # Read vertexes.
-        for i in range(dwVertexesCnt):
-            vx = 0.0
-            vy = 0.0
-            vz = 0.0
-            vw = 0.0
-            nx = 0.0
-            ny = 0.0
-            nz = 0.0
-            tu = 0.0
-            tv = 0.0
-
-            for j in range(len(VertexAttribTypesArray)):
-                ElementType = VertexAttribTypesArray[j]
-                if ElementType == 0:  # EFLOAT.
-                    z = readFloat(f)
-                elif ElementType == 1:  # EUINT.
-                    z = readULong(f)
-                elif ElementType == 2:  # ESINT.
-                    z = readLong(f)
-                else:
-                    z = readULong(f)
-
-                if j == g_PosX_Idx:
-                    vx = float(z)
-                if j == g_PosY_Idx:
-                    vy = float(z)
-                if j == g_PosZ_Idx:
-                    vz = float(z)
-
-                if j == g_NormX_Idx:
-                    nx = float(z)
-                if j == g_NormY_Idx:
-                    ny = float(z)
-                if j == g_NormZ_Idx:
-                    nz = float(z)
-
-                if j == g_Tc0_U_Idx:
-                    tu = float(z)
-                if j == g_Tc0_V_Idx:
-                    tv = 1 - float(z)
-
-            Vert_array.append(vx, vy, vz)
-            Normal_array.append([nx, ny, nz])
-            UArray.append(tu)
-            VArray.append(tv)
-
-            TexFile = "setka.png"
-            if TextureFiles:
-                TexFile = TextureFiles[g_Tex0_FileLev]
-
-    if dwVertexesCnt == Vert_array.length():
-        if dwFacesCnt == Face_array.length() / 3:
+    if header[3] == VertexData[0].length():  # Vertex count equal
+        if header[2] == Face_array.length() / 3:  # Faces count equal
             ImportToMaya(
-                Vert_array, Face_array, [UArray, VArray],
-                os.path.dirname(path), TexFile
+                VertexData[0], Face_array, [VertexData[2], VertexData[3]],
+                os.path.dirname(path), textureFile
             )
             return
     printMessage("File reading error: incomplete vertex/faces arrays.")

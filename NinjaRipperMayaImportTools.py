@@ -38,8 +38,9 @@ uvscaler = 1
 g_flipUV = 1
 g_normalizeUV = False
 
-
 g_enabler = True
+
+RegisterKey = None
 
 
 def readULong(f):
@@ -73,24 +74,11 @@ def regReadFloat(keyName):
 
 
 def regReadDword(keyName):
-    key = reg.CreateKey(
-        reg.HKEY_CURRENT_USER,
-        "SOFTWARE\\Autodesk\\MayaPlugins\\NinjaRipperMayaImportTools"
-    )
-    q = reg.QueryValueEx(key, keyName)
-    reg.CloseKey(key)
-    return q[0]
+    return reg.QueryValueEx(RegisterKey, keyName)[0]
 
 
 def regReadString(keyName):
-    key = reg.CreateKey(
-        reg.HKEY_CURRENT_USER,
-        "SOFTWARE\\Autodesk\\MayaPlugins\\NinjaRipperMayaImportTools"
-    )
-
-    q = reg.QueryValueEx(key, keyName)
-    reg.CloseKey(key)
-    return q[0].encode('ascii', 'ignore')
+    return regReadDword(keyName).encode('ascii', 'ignore')
 
 
 def regReadBool(keyName):
@@ -98,23 +86,11 @@ def regReadBool(keyName):
 
 
 def regSetDword(keyName, val):
-    key = reg.CreateKey(
-        reg.HKEY_CURRENT_USER,
-        "SOFTWARE\\Autodesk\\MayaPlugins\\NinjaRipperMayaImportTools"
-    )
-
-    reg.SetValueEx(key, keyName, 0, reg.REG_DWORD, val)
-    reg.CloseKey(key)
+    reg.SetValueEx(RegisterKey, keyName, 0, reg.REG_DWORD, val)
 
 
 def regSetString(keyName, val):
-    key = reg.CreateKey(
-        reg.HKEY_CURRENT_USER,
-        "SOFTWARE\\Autodesk\\MayaPlugins\\NinjaRipperMayaImportTools"
-    )
-
-    reg.SetValueEx(key, keyName, 0, reg.REG_SZ, val)
-    reg.CloseKey(key)
+    reg.SetValueEx(RegisterKey, keyName, 0, reg.REG_SZ, val)
 
 
 def regSetFloat(keyName, val):
@@ -321,7 +297,7 @@ def importRip(path):
 
             TexFile = "setka.png"
             if TextureFiles:
-                TexFile = TextureFiles[g_Tex0_FileLev]                
+                TexFile = TextureFiles[g_Tex0_FileLev]
 
     if dwVertexesCnt == Vert_array.length():
         if dwFacesCnt == Face_array.length() / 3:
@@ -409,20 +385,12 @@ def ImportToMaya(vertexArray, polygonConnects, uvArray, texturePath, texture):
     print("Import done for mesh '{}'".format(meshName))
 
 
-def onAutoButtonPressed():
+def changeVertexRecognition(isManual):
     global g_VertexFormatRecog
-    g_VertexFormatRecog = 0
+    g_VertexFormatRecog = int(state)
     cmds.frameLayout('NR_VertexLayout_Position', edit=True, en=False)
-    cmds.frameLayout('NR_VertexLayout_Normal', edit=True, en=False)
-    cmds.frameLayout('NR_VertexLayout_TexCoord', edit=True, en=False)
-
-
-def onManualButtonPressed():
-    global g_VertexFormatRecog
-    g_VertexFormatRecog = 1
-    cmds.frameLayout('NR_VertexLayout_Position', edit=True, en=False)
-    cmds.frameLayout('NR_VertexLayout_Normal', edit=True, en=True)
-    cmds.frameLayout('NR_VertexLayout_TexCoord', edit=True, en=True)
+    cmds.frameLayout('NR_VertexLayout_Normal', edit=True, en=state)
+    cmds.frameLayout('NR_VertexLayout_TexCoord', edit=True, en=state)
 
 
 def onImportButtonPressed():
@@ -501,7 +469,9 @@ def createMenu():
         label='Import RIP v4', c="cmds.showWindow('NR_ImportWindow')"
     )
 
-    cmds.menuItem(label="Reload Script", c="reload(NinjaRipperMayaImportTools)")
+    cmds.menuItem(
+        label="Reload Script", c="reload(NinjaRipperMayaImportTools)"
+    )
 
 
 def createImportWindow():
@@ -524,11 +494,11 @@ def createImportWindow():
     cmds.radioCollection()
     cmds.radioButton(
         'NR_VertexRecognitionAuto', label='Auto', sl=True,
-        onc='NinjaRipperMayaImportTools.onAutoButtonPressed()'
+        onc='NinjaRipperMayaImportTools.changeVertexRecognition(False)'
     )
     cmds.radioButton(
         'NR_VertexRecognitionManual', label='Manual',
-        onc='NinjaRipperMayaImportTools.onManualButtonPressed()'
+        onc='NinjaRipperMayaImportTools.changeVertexRecognition(True)'
     )
 
     cmds.setParent('..')
@@ -772,13 +742,18 @@ def saveOptions():
     regSetBool("NR_MiscNormalizeUV", g_normalizeUV)
 
 
-def setupDefaultOptionsIfNecessary():
+def setupRegister():
+    global RegisterKey
     try:
-        key = reg.OpenKey(
+        RegisterKey = reg.OpenKey(
             reg.HKEY_CURRENT_USER,
             "SOFTWARE\\Autodesk\\MayaPlugins\\NinjaRipperMayaImportTools"
         )
     except WindowsError:
+        RegisterKey = reg.CreateKey(
+            reg.HKEY_CURRENT_USER,
+            "SOFTWARE\\Autodesk\\MayaPlugins\\NinjaRipperMayaImportTools"
+        )
         regSetDword("NR_VertexRecognition", 0)
         regSetString("InitialDirectory", "")
         # regSetDword("NR_VertexLayout_PosX", 0)
@@ -801,6 +776,6 @@ def setupDefaultOptionsIfNecessary():
 
 createMenu()
 createImportWindow()
-setupDefaultOptionsIfNecessary()
+setupRegister()
 loadOptions()
 printMessage("NinjaRipperMayaImportTools loaded successfully!")

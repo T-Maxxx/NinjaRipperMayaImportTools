@@ -319,11 +319,9 @@ def importRip(path):
             UArray.append(tu)
             VArray.append(tv)
 
-            TexFile = TextureFiles[g_Tex0_FileLev]
-            """TODO:
-            if TexFile == None??:
-                TexFile = "setka.png"
-            """
+            TexFile = "setka.png"
+            if TextureFiles:
+                TexFile = TextureFiles[g_Tex0_FileLev]                
 
     if dwVertexesCnt == Vert_array.length():
         if dwFacesCnt == Face_array.length() / 3:

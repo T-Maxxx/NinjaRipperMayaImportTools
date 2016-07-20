@@ -222,6 +222,11 @@ def importRip(path):
     global g_flipUV
     global g_Tex0_FileLev
 
+    # Reset this in case of loading multiple meshes in auto mode.
+    VertexLayout['posUpdated'] = False
+    VertexLayout['nmlUpdated'] = False
+    VertexLayout['uvUpdated'] = False
+
     with open(path, "rb") as f:
         header = readRIPHeader(f)
         # Header:

@@ -19,14 +19,14 @@ g_Tex0_FileLev = 0
 
 g_Mesh_Index = 0  # For renaming purposes.
 
-g_PosX_Idx = 0
-g_PosY_Idx = 1
-g_PosZ_Idx = 2
-g_NormX_Idx = 3
-g_NormY_Idx = 4
-g_NormZ_Idx = 5
-g_Tc0_U_Idx = 6
-g_Tc0_V_Idx = 7
+VertexLayout = {
+    'pos': [0, 1, 2],
+    'nml': [3, 4, 5],
+    'uv': [6, 7],
+    'posUpdated': False,
+    'nmlUpdated': False,
+    'uvUpdated': False,
+}
 
 # Globals additional.
 mdlscaler = 100
@@ -105,43 +105,25 @@ def readRIPHeader(f):
     return struct.unpack('<LLLLLLLL', f.read(32))[0]
 
 
-def updatePositionIndexes(base, updateRequired):
-    global g_PosX_Idx
-    global g_PosY_Idx
-    global g_PosZ_Idx
-    if updateRequired is True:
-        g_PosX_Idx = base
-        g_PosY_Idx = base + 1
-        g_PosZ_Idx = base + 2
-    return False
+def updateVertexLayoutIndexes(t, baseIndex):
+    if t is None:
+        return
 
+    global VertexLayout
 
-def updateNormalIndexes(base, updateRequired):
-    global g_NormX_Idx
-    global g_NormY_Idx
-    global g_NormZ_Idx
-    if updateRequired is True:
-        g_NormX_Idx = base
-        g_NormY_Idx = base + 1
-        g_NormZ_Idx = base + 2
-    return False
+    key = "{}Updated".format(t)
 
-
-def updateTexCoordIndexes(base, updateRequired):
-    global g_Tc0_U_Idx
-    global g_Tc0_V_Idx
-    if updateRequired is True:
-        g_Tc0_U_Idx = base
-        g_Tc0_V_Idx = base + 1
-    return False
+    if VertexLayout[key] is False:
+        VertexLayout[t][0] = baseIndex
+        VertexLayout[t][1] = baseIndex + 1
+        VertexLayout[t][2] = baseIndex + 2
+        VertexLayout[key] = True
 
 
 def readRIPVertexAttrib(f, count):
     result = ''
     types = {0: 'f', 1: 'L', 2: 'l'}
-    isPosIdxSet = False
-    isNormalIdxSet = False
-    isTexCoordSet = False
+    vertexAttributes = []
 
     for i in range(count):
         semantic = readString(f)
@@ -152,16 +134,24 @@ def readRIPVertexAttrib(f, count):
         for j in range(typeMapElements):
             result += types.get(readULong(f), 1)
 
-        if g_VertexFormatRecog != 0:  # AUTO recognition.
-            continue
+        vertexAttributes.append([semantic, offset / 4])
 
-        if semantic == "POSITION":
-            isPosIdxSet = updatePositionIndexes(offset / 4, isPosIdxSet)
-        elif semantic == "NORMAL":
-            isNormalIdxSet = updateNormalIndexes(offset / 4, isNormalIdxSet)
-        elif semantic == "TEXCOORD":
-            isTexCoordSet = updateTexCoordIndexes(offset / 4, isTexCoordSet)
+    if g_VertexFormatRecog == 0:  # AUTO recognition.
+        applyRecognitionLogic(vertexAttributes)
+
     return result
+
+
+def applyRecognitionLogic(vertexAttributes):
+    isPosIdxSet = False
+    isNormalIdxSet = False
+    isTexCoordSet = False
+    shortNames = {'POSITION': 'pos', 'NORMAL': 'nml', 'TEXCOORD': 'uv'}
+
+    for i in range(len(vertexAttributes)):
+        updateVertexLayoutIndexes(
+            shortNames[vertexAttributes[i][0]], vertexAttributes[i][1]
+        )
 
 
 def readRIPStrings(f, count):
@@ -195,17 +185,19 @@ def readRIPVertexes(f, count, vertDict):
         vertexData = struct.unpack(vertDict, f.read(rawStructSize))
 
         Vert_array.append(
-            vertexData[g_PosX_Idx], vertexData[g_PosY_Idx],
-            vertexData[g_PosZ_Idx]
+            vertexData[VertexLayout['pos'][0]],
+            vertexData[VertexLayout['pos'][1]],
+            vertexData[VertexLayout['pos'][2]]
         )
         Normal_array.append(
             [
-                vertexData[g_NormX_Idx], vertexData[g_NormY_Idx],
-                vertexData[g_NormZ_Idx]
+                vertexData[VertexLayout['nml'][0]],
+                vertexData[VertexLayout['nml'][1]],
+                vertexData[VertexLayout['nml'][2]]
             ]
         )
-        UArray.append(vertexData[g_Tc0_U_Idx])
-        VArray.append(1 - vertexData[g_Tc0_V_Idx])
+        UArray.append(vertexData[VertexLayout['uv'][0]])
+        VArray.append(1 - vertexData[VertexLayout['uv'][1]])
 
     # VertexData:
     # [0] - Vert_array
@@ -286,14 +278,14 @@ def importRip(path):
 
         print("---------Importing RIP file---------------------")
         print("g_VertexFormatRecog = {}".format(g_VertexFormatRecog))
-        print("g_PosX_Idx = {}".format(g_PosX_Idx))
-        print("g_PosY_Idx = {}".format(g_PosY_Idx))
-        print("g_PosZ_Idx = {}".format(g_PosZ_Idx))
-        print("g_NormX_Idx = {}".format(g_NormX_Idx))
-        print("g_NormY_Idx = {}".format(g_NormY_Idx))
-        print("g_NormZ_Idx = {}".format(g_NormZ_Idx))
-        print("g_Tc0_U_Idx = {}".format(g_Tc0_U_Idx))
-        print("g_Tc0_V_Idx = {}".format(g_Tc0_V_Idx))
+        print("VertexLayout['pos'][0] = {}".format(VertexLayout['pos'][0]))
+        print("VertexLayout['pos'][1] = {}".format(VertexLayout['pos'][1]))
+        print("VertexLayout['pos'][2] = {}".format(VertexLayout['pos'][2]))
+        print("VertexLayout['nml'][0] = {}".format(VertexLayout['nml'][0]))
+        print("VertexLayout['nml'][1] = {}".format(VertexLayout['nml'][1]))
+        print("VertexLayout['nml'][2] = {}".format(VertexLayout['nml'][2]))
+        print("VertexLayout['uv'][0] = {}".format(VertexLayout['uv'][0]))
+        print("VertexLayout['uv'][1] = {}".format(VertexLayout['uv'][1]))
         print("mdlscaler = {}".format(mdlscaler))
         print("uvscaler = {}".format(uvscaler))
         print("g_Tex0_FileLev = {}".format(g_Tex0_FileLev))
@@ -398,14 +390,7 @@ def changeVertexRecognition(isManual):
 
 def onImportButtonPressed():
     global InitialDirectory
-    global g_PosX_Idx
-    global g_PosY_Idx
-    global g_PosZ_Idx
-    global g_NormX_Idx
-    global g_NormY_Idx
-    global g_NormZ_Idx
-    global g_Tc0_U_Idx
-    global g_Tc0_V_Idx
+    global VertexLayout
 
     global mdlscaler
     global g_ninjarotX
@@ -432,14 +417,30 @@ def onImportButtonPressed():
     g_normalizeUV = cmds.checkBox('NR_MiscNormalizeUV', query=True, v=True)
 
     if g_VertexFormatRecog == 1:
-        g_PosX_Idx = cmds.intField('NR_VertexLayout_PosX', query=True, v=True)
-        g_PosY_Idx = cmds.intField('NR_VertexLayout_PosY', query=True, v=True)
-        g_PosZ_Idx = cmds.intField('NR_VertexLayout_PosZ', query=True, v=True)
-        g_NormX_Idx = cmds.intField('NR_VertexLayout_NmlX', query=True, v=True)
-        g_NormY_Idx = cmds.intField('NR_VertexLayout_NmlY', query=True, v=True)
-        g_NormZ_Idx = cmds.intField('NR_VertexLayout_NmlZ', query=True, v=True)
-        g_Tc0_U_Idx = cmds.intField('NR_VertexLayout_TCU', query=True, v=True)
-        g_Tc0_V_Idx = cmds.intField('NR_VertexLayout_TCV', query=True, v=True)
+        VertexLayout['pos'][0] = cmds.intField(
+            'NR_VertexLayout_PosX', query=True, v=True
+        )
+        VertexLayout['pos'][1] = cmds.intField(
+            'NR_VertexLayout_PosY', query=True, v=True
+        )
+        VertexLayout['pos'][2] = cmds.intField(
+            'NR_VertexLayout_PosZ', query=True, v=True
+        )
+        VertexLayout['nml'][0] = cmds.intField(
+            'NR_VertexLayout_NmlX', query=True, v=True
+        )
+        VertexLayout['nml'][1] = cmds.intField(
+            'NR_VertexLayout_NmlY', query=True, v=True
+        )
+        VertexLayout['nml'][2] = cmds.intField(
+            'NR_VertexLayout_NmlZ', query=True, v=True
+        )
+        VertexLayout['uv'][0] = cmds.intField(
+            'NR_VertexLayout_TCU', query=True, v=True
+        )
+        VertexLayout['uv'][1] = cmds.intField(
+            'NR_VertexLayout_TCV', query=True, v=True
+        )
 
     saveOptions()
 
@@ -649,14 +650,7 @@ def loadOptions():
     global g_VertexFormatRecog
     global InitialDirectory
 
-    global g_PosX_Idx
-    global g_PosY_Idx
-    global g_PosZ_Idx
-    global g_NormX_Idx
-    global g_NormY_Idx
-    global g_NormZ_Idx
-    global g_Tc0_U_Idx
-    global g_Tc0_V_Idx
+    global VertexLayout
 
     global mdlscaler
     global g_ninjarotX
@@ -671,15 +665,15 @@ def loadOptions():
     g_VertexFormatRecog = regReadDword('NR_VertexRecognition')
     InitialDirectory = regReadString('InitialDirectory')
 
-    # g_PosX_Idx = regReadDword('NR_VertexLayout_PosX')
-    # g_PosY_Idx = regReadDword('NR_VertexLayout_PosY')
-    # g_PosZ_Idx = regReadDword('NR_VertexLayout_PosZ')
+    # VertexLayout['pos'][0] = regReadDword('NR_VertexLayout_PosX')
+    # VertexLayout['pos'][2] = regReadDword('NR_VertexLayout_PosY')
+    # VertexLayout['pos'][3] = regReadDword('NR_VertexLayout_PosZ')
 
-    g_NormX_Idx = regReadDword('NR_VertexLayout_NmlX')
-    g_NormY_Idx = regReadDword('NR_VertexLayout_NmlY')
-    g_NormZ_Idx = regReadDword('NR_VertexLayout_NmlZ')
-    g_Tc0_U_Idx = regReadDword('NR_VertexLayout_TCU')
-    g_Tc0_V_Idx = regReadDword('NR_VertexLayout_TCV')
+    VertexLayout['nml'][0] = regReadDword('NR_VertexLayout_NmlX')
+    VertexLayout['nml'][1] = regReadDword('NR_VertexLayout_NmlY')
+    VertexLayout['nml'][2] = regReadDword('NR_VertexLayout_NmlZ')
+    VertexLayout['uv'][0] = regReadDword('NR_VertexLayout_TCU')
+    VertexLayout['uv'][1] = regReadDword('NR_VertexLayout_TCV')
 
     mdlscaler = regReadFloat('NR_TransformScale')
     g_ninjarotX = regReadFloat('NR_TransformRotateX')
@@ -691,15 +685,21 @@ def loadOptions():
     g_flipUV = regReadDword('NR_MiscFlipUV')
     g_normalizeUV = regReadBool('NR_MiscNormalizeUV')
 
-    # cmds.intField('NR_VertexLayout_PosX', edit=True, v=g_PosX_Idx)
-    # cmds.intField('NR_VertexLayout_PosY', edit=True, v=g_PosY_Idx)
-    # cmds.intField('NR_VertexLayout_PosZ', edit=True, v=g_PosZ_Idx)
+    # cmds.intField(
+    #    'NR_VertexLayout_PosX', edit=True, v=VertexLayout['pos'][0]
+    # )
+    # cmds.intField(
+    #    'NR_VertexLayout_PosY', edit=True, v=VertexLayout['pos'][1]
+    # )
+    # cmds.intField(
+    #    'NR_VertexLayout_PosZ', edit=True, v=VertexLayout['pos'][2]
+    # )
 
-    cmds.intField('NR_VertexLayout_NmlX', edit=True, v=g_NormX_Idx)
-    cmds.intField('NR_VertexLayout_NmlY', edit=True, v=g_NormY_Idx)
-    cmds.intField('NR_VertexLayout_NmlZ', edit=True, v=g_NormZ_Idx)
-    cmds.intField('NR_VertexLayout_TCU', edit=True, v=g_Tc0_U_Idx)
-    cmds.intField('NR_VertexLayout_TCV', edit=True, v=g_Tc0_V_Idx)
+    cmds.intField('NR_VertexLayout_NmlX', edit=True, v=VertexLayout['nml'][0])
+    cmds.intField('NR_VertexLayout_NmlY', edit=True, v=VertexLayout['nml'][1])
+    cmds.intField('NR_VertexLayout_NmlZ', edit=True, v=VertexLayout['nml'][2])
+    cmds.intField('NR_VertexLayout_TCU', edit=True, v=VertexLayout['uv'][0])
+    cmds.intField('NR_VertexLayout_TCV', edit=True, v=VertexLayout['uv'][1])
 
     cmds.floatField('NR_TransformScale', edit=True, v=mdlscaler)
     cmds.floatField('NR_TransformRotateX', edit=True, v=g_ninjarotX)
@@ -726,15 +726,15 @@ def saveOptions():
     regSetDword("NR_VertexRecognition", g_VertexFormatRecog)
     regSetString("InitialDirectory", InitialDirectory)
 
-    # regSetDword("NR_VertexLayout_PosX", g_PosX_Idx)
-    # regSetDword("NR_VertexLayout_PosY", g_PosY_Idx)
-    # regSetDword("NR_VertexLayout_PosZ", g_PosZ_Idx)
+    # regSetDword("NR_VertexLayout_PosX", VertexLayout['pos'][0])
+    # regSetDword("NR_VertexLayout_PosY", VertexLayout['pos'][1])
+    # regSetDword("NR_VertexLayout_PosZ", VertexLayout['pos'][2])
 
-    regSetDword("NR_VertexLayout_NmlX", g_NormX_Idx)
-    regSetDword("NR_VertexLayout_NmlY", g_NormY_Idx)
-    regSetDword("NR_VertexLayout_NmlZ", g_NormZ_Idx)
-    regSetDword("NR_VertexLayout_TCU", g_Tc0_U_Idx)
-    regSetDword("NR_VertexLayout_TCV", g_Tc0_V_Idx)
+    regSetDword("NR_VertexLayout_NmlX", VertexLayout['nml'][0])
+    regSetDword("NR_VertexLayout_NmlY", VertexLayout['nml'][1])
+    regSetDword("NR_VertexLayout_NmlZ", VertexLayout['nml'][2])
+    regSetDword("NR_VertexLayout_TCU", VertexLayout['uv'][0])
+    regSetDword("NR_VertexLayout_TCV", VertexLayout['uv'][1])
     regSetFloat("NR_TransformScale", mdlscaler)
     regSetFloat("NR_TransformRotateX", g_ninjarotX)
     regSetFloat("NR_TransformRotateY", g_ninjarotY)

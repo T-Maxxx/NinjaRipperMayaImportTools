@@ -102,7 +102,7 @@ def regSetBool(keyName, val):
 
 
 def readRIPHeader(f):
-    return struct.unpack('<LLLLLLLL', f.read(32))[0]
+    return struct.unpack('<LLLLLLLL', f.read(32))
 
 
 def updateVertexLayoutIndexes(t, baseIndex):
@@ -112,11 +112,12 @@ def updateVertexLayoutIndexes(t, baseIndex):
     global VertexLayout
 
     key = "{}Updated".format(t)
-
+    print(key)
     if VertexLayout[key] is False:
         VertexLayout[t][0] = baseIndex
         VertexLayout[t][1] = baseIndex + 1
-        VertexLayout[t][2] = baseIndex + 2
+        if t != 'uv':
+            VertexLayout[t][2] = baseIndex + 2
         VertexLayout[key] = True
 
 
@@ -150,7 +151,8 @@ def applyRecognitionLogic(vertexAttributes):
 
     for i in range(len(vertexAttributes)):
         updateVertexLayoutIndexes(
-            shortNames[vertexAttributes[i][0]], vertexAttributes[i][1]
+            shortNames.get(vertexAttributes[i][0], None),
+            vertexAttributes[i][1]
         )
 
 
@@ -167,7 +169,7 @@ def readRIPFaces(f, count):
     for i in range(count):
         data = struct.unpack('LLL', f.read(12))
         for j in range(3):
-            result.append(data[j])
+            faceArray.append(data[j])
 
     return faceArray
 
@@ -268,9 +270,9 @@ def importRip(path):
         # Read vertex attributes.
         vertexStructDictionary = readRIPVertexAttrib(f, header[7])
         # Read textures list (if present).
-        TextureFiles = readRIPTextures(f, header[5])
+        TextureFiles = readRIPStrings(f, header[5])
         # Read shader list (if present).
-        ShaderFiles = readRIPTextures(f, header[6])
+        ShaderFiles = readRIPStrings(f, header[6])
         # Read mesh faces.
         Face_array = readRIPFaces(f, header[2])
         # Read vertexes data.

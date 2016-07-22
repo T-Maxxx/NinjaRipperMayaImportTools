@@ -15,6 +15,7 @@ InitialDirectory = ""
 
 # Global vars.
 g_Tex0_FileLev = 0
+ImportAnything = False
 
 g_Mesh_Index = 0  # For renaming purposes.
 
@@ -197,7 +198,6 @@ def generateNormalFromData(vertexData):
 def generateTexCoordFromData(vertexData, offset):
     if VertexLayout['uvwCount'] > offset:
         return vertexData[VertexLayout['uvw'][offset]]
-
     return 0
 
 
@@ -233,7 +233,7 @@ def readRIPVertexes(f, count, vertDict):
 def isFileReadCorrect(h, v, f):
     is3DModel = VertexLayout['posCount'] == 3 and VertexLayout['uvwCount'] == 2
     isFileReadOK = h[3] == v[0].length() and h[2] == f.length() / 3
-    return is3DModel and isFileReadOK
+    return (is3DModel or ImportAnything) and isFileReadOK
 
 
 def importRip(path):
@@ -305,25 +305,6 @@ def importRip(path):
         # [2] - UArray
         # [3] - VArray
 
-        print("---------Importing RIP file---------------------")
-        print("VertexLayout['autoMode'] = {}".format(VertexLayout['autoMode']))
-        print("VertexLayout['pos'][0] = {}".format(VertexLayout['pos'][0]))
-        print("VertexLayout['pos'][1] = {}".format(VertexLayout['pos'][1]))
-        print("VertexLayout['pos'][2] = {}".format(VertexLayout['pos'][2]))
-        print("VertexLayout['nml'][0] = {}".format(VertexLayout['nml'][0]))
-        print("VertexLayout['nml'][1] = {}".format(VertexLayout['nml'][1]))
-        print("VertexLayout['nml'][2] = {}".format(VertexLayout['nml'][2]))
-        print("VertexLayout['uvw'][0] = {}".format(VertexLayout['uvw'][0]))
-        print("VertexLayout['uvw'][1] = {}".format(VertexLayout['uvw'][1]))
-        print("VertexLayout['uvw'][2] = {}".format(VertexLayout['uvw'][2]))
-        print("mdlscaler = {}".format(mdlscaler))
-        print("uvscaler = {}".format(uvscaler))
-        print("g_Tex0_FileLev = {}".format(g_Tex0_FileLev))
-        print("g_flipUV = {}".format(g_flipUV))
-        print("VertexLayout['posCount'] = {}".format(VertexLayout['posCount']))
-        print("VertexLayout['nmlCount'] = {}".format(VertexLayout['nmlCount']))
-        print("VertexLayout['uvwCount'] = {}".format(VertexLayout['uvwCount']))
-
     textureFile = "setka.png"
     if TextureFiles:
         textureFile = TextureFiles[g_Tex0_FileLev]
@@ -334,6 +315,25 @@ def importRip(path):
             os.path.dirname(path), textureFile
         )
         return
+
+    print("RIP info for '{}'".format(path))
+    print("VertexLayout['autoMode'] = {}".format(VertexLayout['autoMode']))
+    print("VertexLayout['pos'][0] = {}".format(VertexLayout['pos'][0]))
+    print("VertexLayout['pos'][1] = {}".format(VertexLayout['pos'][1]))
+    print("VertexLayout['pos'][2] = {}".format(VertexLayout['pos'][2]))
+    print("VertexLayout['nml'][0] = {}".format(VertexLayout['nml'][0]))
+    print("VertexLayout['nml'][1] = {}".format(VertexLayout['nml'][1]))
+    print("VertexLayout['nml'][2] = {}".format(VertexLayout['nml'][2]))
+    print("VertexLayout['uvw'][0] = {}".format(VertexLayout['uvw'][0]))
+    print("VertexLayout['uvw'][1] = {}".format(VertexLayout['uvw'][1]))
+    print("VertexLayout['uvw'][2] = {}".format(VertexLayout['uvw'][2]))
+    print("mdlscaler = {}".format(mdlscaler))
+    print("uvscaler = {}".format(uvscaler))
+    print("g_Tex0_FileLev = {}".format(g_Tex0_FileLev))
+    print("g_flipUV = {}".format(g_flipUV))
+    print("VertexLayout['posCount'] = {}".format(VertexLayout['posCount']))
+    print("VertexLayout['nmlCount'] = {}".format(VertexLayout['nmlCount']))
+    print("VertexLayout['uvwCount'] = {}".format(VertexLayout['uvwCount']))
     printMessage(
         "File reading error: incomplete vertex/faces arrays" +
         " or file not a 3D object"
@@ -437,6 +437,7 @@ def onImportButtonPressed():
     global g_Tex0_FileLev
     global g_flipUV
     global g_normalizeUV
+    global ImportAnything
 
     mdlscaler = cmds.floatField('NR_TransformScale', query=True, v=True)
     g_ninjarotX = cmds.floatField('NR_TransformRotateX', query=True, v=True)
@@ -451,6 +452,7 @@ def onImportButtonPressed():
         g_flipUV = 1
 
     g_normalizeUV = cmds.checkBox('NR_MiscNormalizeUV', query=True, v=True)
+    ImportAnything = cmds.checkBox('NR_MiscImportAnything', query=True, v=True)
 
     if VertexLayout['autoMode'] is False:
         VertexLayout['pos'][0] = cmds.intField(
@@ -648,6 +650,10 @@ def createImportWindow():
         ann="Works only with correct UV scale (UV set must be placed" +
             " inside (-1;-1)x(1;1) square). It may broke UV set otherwise."
     )
+    cmds.checkBox(
+        'NR_MiscImportAnything', label='Import anything',
+        ann='Do not ignore non-3D objects(incomplete pos/nml/uv coords)'
+    )
 
     cmds.setParent('..')
 
@@ -697,6 +703,7 @@ def loadOptions():
     global g_Tex0_FileLev
     global g_flipUV
     global g_normalizeUV
+    global ImportAnything
 
     VertexLayout['autoMode'] = regReadBool('NR_AutoMode')
     InitialDirectory = regReadString('InitialDirectory')
@@ -720,6 +727,7 @@ def loadOptions():
     g_Tex0_FileLev = regReadDword('NR_MiscTextureNumber')
     g_flipUV = regReadDword('NR_MiscFlipUV')
     g_normalizeUV = regReadBool('NR_MiscNormalizeUV')
+    ImportAnything = regReadBool('NR_MiscImportAnything')
 
     # cmds.intField(
     #    'NR_VertexLayout_PosX', edit=True, v=VertexLayout['pos'][0]
@@ -749,6 +757,7 @@ def loadOptions():
     )
 
     cmds.checkBox('NR_MiscNormalizeUV', edit=True, v=g_normalizeUV)
+    cmds.checkBox('NR_MiscImportAnything', edit=True, v=ImportAnything)
 
     if VertexLayout['autoMode'] is True:
         cmds.radioButton('NR_VertexRecognitionAuto', edit=True, sl=True)
@@ -779,6 +788,7 @@ def saveOptions():
     regSetDword("NR_MiscTextureNumber", g_Tex0_FileLev)
     regSetDword("NR_MiscFlipUV", g_flipUV)
     regSetBool("NR_MiscNormalizeUV", g_normalizeUV)
+    regSetBool('NR_MiscImportAnything', ImportAnything)
 
 
 def setupRegister():
@@ -813,6 +823,7 @@ def setupRegister():
         regSetDword("NR_MiscTextureNumber", 0)
         regSetDword("NR_MiscFlipUV", 0)
         regSetBool("NR_MiscNormalizeUV", False)
+        regSetBool('NR_MiscImportAnything', False)
 
 
 createMenu()

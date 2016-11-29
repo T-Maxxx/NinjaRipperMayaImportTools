@@ -8,7 +8,7 @@ import maya.mel as mel
 import unicodedata
 import _winreg as reg
 
-g_debugMessages = False
+g_debugMessages = True
 
 RipSignature = 0xDEADC0DE
 RipFileVersion = 4
@@ -24,7 +24,7 @@ g_Mesh_Index = 0  # For renaming purposes.
 VertexLayout = {
     'pos': [0, 1, 2, 3],  # Can be 2 of 4
     'nml': [4, 5, 6, 7],
-    'uvw': [8, 9, 10],  # Can be only 1 of 3
+    'uvw': [8, 9, 10, 11],  # Can be only 1 of 3. Met 4, but not in use.
     'posUpdated': False,
     'nmlUpdated': False,
     'uvwUpdated': False,
@@ -133,6 +133,7 @@ def updateVertexLayoutIndexes(t, baseIndex, count):
     # printDebug(keyCount)
     if VertexLayout[keyUpdated] is False:
         for i in range(count):
+            printDebug("VertexLayout[{}][{}]".format(t, i))
             VertexLayout[t][i] = baseIndex + i
         VertexLayout[keyUpdated] = True
         VertexLayout[keyCount] = count

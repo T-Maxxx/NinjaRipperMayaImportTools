@@ -8,6 +8,8 @@ import maya.mel as mel
 import unicodedata
 import _winreg as reg
 
+g_debugMessages = False
+
 RipSignature = 0xDEADC0DE
 RipFileVersion = 4
 
@@ -15,17 +17,21 @@ InitialDirectory = ""
 
 # Global vars.
 g_Tex0_FileLev = 0
+ImportAnything = False
 
 g_Mesh_Index = 0  # For renaming purposes.
 
 VertexLayout = {
-    'pos': [0, 1, 2],
-    'nml': [3, 4, 5],
-    'uv': [6, 7],
+    'pos': [0, 1, 2, 3],  # Can be 2 of 4
+    'nml': [4, 5, 6, 7],
+    'uvw': [8, 9, 10],  # Can be only 1 of 3
     'posUpdated': False,
     'nmlUpdated': False,
-    'uvUpdated': False,
-    'autoMode': True
+    'uvwUpdated': False,
+    'autoMode': True,
+    'posCount': 0,
+    'nmlCount': 0,
+    'uvwCount': 0,
 }
 
 # Globals additional.
@@ -37,11 +43,11 @@ uvscaler = 1
 
 g_flipUV = 1
 g_normalizeUV = False
+g_reverseNormals = False
 
 g_enabler = True
 
 RegisterKey = None
-
 
 def readULong(f):
     return struct.unpack('<L', f.read(4))[0]
@@ -65,6 +71,11 @@ def readString(f):
     return s
 
 
+def printDebug(text):
+    if g_debugMessages is True:
+        print(text)
+        #mel.eval('print "{}"'.format(text))
+
 def printMessage(text):
     mel.eval('print "// {} //"'.format(text))
 
@@ -74,7 +85,12 @@ def regReadFloat(keyName):
 
 
 def regReadDword(keyName):
-    return reg.QueryValueEx(RegisterKey, keyName)[0]
+    result = 0
+    try:
+        result = reg.QueryValueEx(RegisterKey, keyName)[0]
+    except WindowsError:
+        result = 0
+    return result
 
 
 def regReadString(keyName):
@@ -105,20 +121,21 @@ def readRIPHeader(f):
     return struct.unpack('<LLLLLLLL', f.read(32))
 
 
-def updateVertexLayoutIndexes(t, baseIndex):
+def updateVertexLayoutIndexes(t, baseIndex, count):
     if t is None:
         return
 
     global VertexLayout
 
-    key = "{}Updated".format(t)
-    print(key)
-    if VertexLayout[key] is False:
-        VertexLayout[t][0] = baseIndex
-        VertexLayout[t][1] = baseIndex + 1
-        if t != 'uv':
-            VertexLayout[t][2] = baseIndex + 2
-        VertexLayout[key] = True
+    keyUpdated = "{}Updated".format(t)
+    keyCount = "{}Count".format(t)
+    # printDebug(keyUpdated)
+    # printDebug(keyCount)
+    if VertexLayout[keyUpdated] is False:
+        for i in range(count):
+            VertexLayout[t][i] = baseIndex + i
+        VertexLayout[keyUpdated] = True
+        VertexLayout[keyCount] = count
 
 
 def readRIPVertexAttrib(f, count):
@@ -135,7 +152,7 @@ def readRIPVertexAttrib(f, count):
         for j in range(typeMapElements):
             result += types.get(readULong(f), 1)
 
-        vertexAttributes.append([semantic, offset / 4])
+        vertexAttributes.append([semantic, offset / 4, size / 4])
 
     if VertexLayout['autoMode'] is True:  # AUTO recognition.
         applyRecognitionLogic(vertexAttributes)
@@ -144,15 +161,21 @@ def readRIPVertexAttrib(f, count):
 
 
 def applyRecognitionLogic(vertexAttributes):
-    isPosIdxSet = False
-    isNormalIdxSet = False
-    isTexCoordSet = False
-    shortNames = {'POSITION': 'pos', 'NORMAL': 'nml', 'TEXCOORD': 'uv'}
+    # vertexAttributes[i]:
+    # [0] semantic
+    # [1] index
+    # [2] count
+
+    shortNames = {'POSITION': 'pos', 'NORMAL': 'nml', 'TEXCOORD': 'uvw', 'SV_POSITION': 'pos'}
+
+    printDebug("vertexAttributes Count: {}".format(len(vertexAttributes)))
 
     for i in range(len(vertexAttributes)):
+        printDebug("vertexAttributes[{}] = {}, selected: {}".format(i, vertexAttributes[i], shortNames.get(vertexAttributes[i][0], None)))
         updateVertexLayoutIndexes(
             shortNames.get(vertexAttributes[i][0], None),
-            vertexAttributes[i][1]
+            vertexAttributes[i][1],
+            vertexAttributes[i][2]
         )
 
 
@@ -174,6 +197,26 @@ def readRIPFaces(f, count):
     return faceArray
 
 
+def generateVertexFromData(vertexData):
+    arr = [0.0, 0.0, 0.0, 0.0]
+    for i in range(VertexLayout['posCount']):  # Up to 4
+        arr[i] = vertexData[VertexLayout['pos'][i]]
+    return OpenMaya.MFloatPoint(arr[0], arr[1], arr[2], arr[3])
+
+
+def generateNormalFromData(vertexData):
+    result = []
+    for i in range(VertexLayout['nmlCount']):  # Up to 4
+        result.append(vertexData[VertexLayout['nml'][i]])
+    return result
+
+
+def generateTexCoordFromData(vertexData, offset):
+    if VertexLayout['uvwCount'] > offset:
+        return vertexData[VertexLayout['uvw'][offset]]
+    return 0
+
+
 def readRIPVertexes(f, count, vertDict):
     result = []
 
@@ -186,20 +229,10 @@ def readRIPVertexes(f, count, vertDict):
     for i in range(count):
         vertexData = struct.unpack(vertDict, f.read(rawStructSize))
 
-        Vert_array.append(
-            vertexData[VertexLayout['pos'][0]],
-            vertexData[VertexLayout['pos'][1]],
-            vertexData[VertexLayout['pos'][2]]
-        )
-        Normal_array.append(
-            [
-                vertexData[VertexLayout['nml'][0]],
-                vertexData[VertexLayout['nml'][1]],
-                vertexData[VertexLayout['nml'][2]]
-            ]
-        )
-        UArray.append(vertexData[VertexLayout['uv'][0]])
-        VArray.append(1 - vertexData[VertexLayout['uv'][1]])
+        Vert_array.append(generateVertexFromData(vertexData))
+        Normal_array.append(generateNormalFromData(vertexData))
+        UArray.append(generateTexCoordFromData(vertexData, 0))
+        VArray.append(1 - generateTexCoordFromData(vertexData, 1))
 
     # VertexData:
     # [0] - Vert_array
@@ -214,7 +247,9 @@ def readRIPVertexes(f, count, vertDict):
 
 
 def isFileReadCorrect(h, v, f):
-    return h[3] == v[0].length() and h[2] == f.length() / 3
+    is3DModel = VertexLayout['posCount'] >= 3 and VertexLayout['uvwCount'] == 2
+    isFileReadOK = h[3] == v[0].length() and h[2] == f.length() / 3
+    return (is3DModel or ImportAnything) and isFileReadOK
 
 
 def importRip(path):
@@ -226,8 +261,11 @@ def importRip(path):
 
     # Reset this in case of loading multiple meshes in auto mode.
     VertexLayout['posUpdated'] = False
+    VertexLayout['posCount'] = 0
     VertexLayout['nmlUpdated'] = False
-    VertexLayout['uvUpdated'] = False
+    VertexLayout['nmlCount'] = 0
+    VertexLayout['uvwUpdated'] = False
+    VertexLayout['uvwCount'] = 0
 
     with open(path, "rb") as f:
         header = readRIPHeader(f)
@@ -257,15 +295,10 @@ def importRip(path):
             printMessage("File '{}' is nor a RIP file".format(path))
             return
 
-        # print("*****ImportRip() File: " + path)
-        # print("dwFacesCnt=" + str(dwFacesCnt))
-        # print("dwVertexesCnt=" + str(dwVertexesCnt))
-        # print("VertexAttributesCnt=" + str(VertexAttributesCnt))
-
-        Normal_array = []
-        Vert_array = OpenMaya.MFloatPointArray()
-        UArray = OpenMaya.MFloatArray()
-        VArray = OpenMaya.MFloatArray()
+        # printDebug("*****ImportRip() File: " + path)
+        # printDebug("dwFacesCnt=" + str(dwFacesCnt))
+        # printDebug("dwVertexesCnt=" + str(dwVertexesCnt))
+        # printDebug("VertexAttributesCnt=" + str(VertexAttributesCnt))
 
         # Read vertex attributes.
         vertexStructDictionary = readRIPVertexAttrib(f, header[7])
@@ -283,20 +316,24 @@ def importRip(path):
         # [2] - UArray
         # [3] - VArray
 
-        print("---------Importing RIP file---------------------")
-        print("VertexLayout['autoMode'] = {}".format(VertexLayout['autoMode']))
-        print("VertexLayout['pos'][0] = {}".format(VertexLayout['pos'][0]))
-        print("VertexLayout['pos'][1] = {}".format(VertexLayout['pos'][1]))
-        print("VertexLayout['pos'][2] = {}".format(VertexLayout['pos'][2]))
-        print("VertexLayout['nml'][0] = {}".format(VertexLayout['nml'][0]))
-        print("VertexLayout['nml'][1] = {}".format(VertexLayout['nml'][1]))
-        print("VertexLayout['nml'][2] = {}".format(VertexLayout['nml'][2]))
-        print("VertexLayout['uv'][0] = {}".format(VertexLayout['uv'][0]))
-        print("VertexLayout['uv'][1] = {}".format(VertexLayout['uv'][1]))
-        print("mdlscaler = {}".format(mdlscaler))
-        print("uvscaler = {}".format(uvscaler))
-        print("g_Tex0_FileLev = {}".format(g_Tex0_FileLev))
-        print("g_flipUV = {}".format(g_flipUV))
+    printDebug("RIP info for '{}'".format(path))
+    printDebug("VertexLayout['autoMode'] = {}".format(VertexLayout['autoMode']))
+    printDebug("VertexLayout['pos'][0] = {}".format(VertexLayout['pos'][0]))
+    printDebug("VertexLayout['pos'][1] = {}".format(VertexLayout['pos'][1]))
+    printDebug("VertexLayout['pos'][2] = {}".format(VertexLayout['pos'][2]))
+    printDebug("VertexLayout['nml'][0] = {}".format(VertexLayout['nml'][0]))
+    printDebug("VertexLayout['nml'][1] = {}".format(VertexLayout['nml'][1]))
+    printDebug("VertexLayout['nml'][2] = {}".format(VertexLayout['nml'][2]))
+    printDebug("VertexLayout['uvw'][0] = {}".format(VertexLayout['uvw'][0]))
+    printDebug("VertexLayout['uvw'][1] = {}".format(VertexLayout['uvw'][1]))
+    printDebug("VertexLayout['uvw'][2] = {}".format(VertexLayout['uvw'][2]))
+    printDebug("mdlscaler = {}".format(mdlscaler))
+    printDebug("uvscaler = {}".format(uvscaler))
+    printDebug("g_Tex0_FileLev = {}".format(g_Tex0_FileLev))
+    printDebug("g_flipUV = {}".format(g_flipUV))
+    printDebug("VertexLayout['posCount'] = {}".format(VertexLayout['posCount']))
+    printDebug("VertexLayout['nmlCount'] = {}".format(VertexLayout['nmlCount']))
+    printDebug("VertexLayout['uvwCount'] = {}".format(VertexLayout['uvwCount']))
 
     textureFile = "setka.png"
     if TextureFiles:
@@ -308,7 +345,12 @@ def importRip(path):
             os.path.dirname(path), textureFile
         )
         return
-    printMessage("File reading error: incomplete vertex/faces arrays.")
+
+    printMessage(
+        "File reading error: incomplete vertex/faces arrays " +
+        "or file not a 3D object. Use ripdumb.exe if you want to " + 
+        "get more information."
+    )
 
 
 def ImportToMaya(vertexArray, polygonConnects, uvArray, texturePath, texture):
@@ -320,10 +362,14 @@ def ImportToMaya(vertexArray, polygonConnects, uvArray, texturePath, texture):
         vertexArray.length(), polygonCounts.length(), vertexArray,
         polygonCounts, polygonConnects
     )
-
     # UV map.
+    mesh.clearUVs()
     mesh.setUVs(uvArray[0], uvArray[1])
-    mesh.assignUVs(polygonCounts, polygonConnects)
+    printDebug("connects cnt {}".format(polygonConnects.length()))
+    printDebug("cnt {}".format(polygonCounts.length()))
+    printDebug("u cnt {}".format(uvArray[0].length()))
+    printDebug("v cnt {}".format(uvArray[1].length()))
+    mesh.assignUVs(polygonCounts, polygonConnects)  # Something wrong here - UV and face count mismatch
 
     # Rename mesh.
     transformDagPath = OpenMaya.MDagPath()
@@ -383,6 +429,13 @@ def ImportToMaya(vertexArray, polygonConnects, uvArray, texturePath, texture):
     cmds.polyMergeVertex(d=0.01, am=True, ch=1)
     cmds.polyMergeUV(d=0.01, ch=True)
 
+    # Reverse normals (First met in MWR)
+    if g_reverseNormals:
+        printDebug("Reversing Normals...")
+        cmds.select(cl=True)
+        cmds.select(meshName)
+        cmds.polyNormal(meshName, ch=1)
+
     cmds.select(cl=True)
     print("Import done for mesh '{}'".format(meshName))
 
@@ -408,6 +461,8 @@ def onImportButtonPressed():
     global g_Tex0_FileLev
     global g_flipUV
     global g_normalizeUV
+    global g_reverseNormals
+    global ImportAnything
 
     mdlscaler = cmds.floatField('NR_TransformScale', query=True, v=True)
     g_ninjarotX = cmds.floatField('NR_TransformRotateX', query=True, v=True)
@@ -422,6 +477,8 @@ def onImportButtonPressed():
         g_flipUV = 1
 
     g_normalizeUV = cmds.checkBox('NR_MiscNormalizeUV', query=True, v=True)
+    g_reverseNormals = cmds.checkBox('NR_MiscReverseNormals', query=True, v=True)
+    ImportAnything = cmds.checkBox('NR_MiscImportAnything', query=True, v=True)
 
     if VertexLayout['autoMode'] is False:
         VertexLayout['pos'][0] = cmds.intField(
@@ -442,10 +499,10 @@ def onImportButtonPressed():
         VertexLayout['nml'][2] = cmds.intField(
             'NR_VertexLayout_NmlZ', query=True, v=True
         )
-        VertexLayout['uv'][0] = cmds.intField(
+        VertexLayout['uvw'][0] = cmds.intField(
             'NR_VertexLayout_TCU', query=True, v=True
         )
-        VertexLayout['uv'][1] = cmds.intField(
+        VertexLayout['uvw'][1] = cmds.intField(
             'NR_VertexLayout_TCV', query=True, v=True
         )
 
@@ -619,6 +676,14 @@ def createImportWindow():
         ann="Works only with correct UV scale (UV set must be placed" +
             " inside (-1;-1)x(1;1) square). It may broke UV set otherwise."
     )
+    cmds.checkBox(
+        'NR_MiscReverseNormals', label="Reverse normals",
+        ann="Reverse normals"
+    )
+    cmds.checkBox(
+        'NR_MiscImportAnything', label='Import anything',
+        ann='Do not ignore non-3D objects(incomplete pos/nml/uv coords)'
+    )
 
     cmds.setParent('..')
 
@@ -668,6 +733,8 @@ def loadOptions():
     global g_Tex0_FileLev
     global g_flipUV
     global g_normalizeUV
+    global g_reverseNormals
+    global ImportAnything
 
     VertexLayout['autoMode'] = regReadBool('NR_AutoMode')
     InitialDirectory = regReadString('InitialDirectory')
@@ -679,8 +746,8 @@ def loadOptions():
     VertexLayout['nml'][0] = regReadDword('NR_VertexLayout_NmlX')
     VertexLayout['nml'][1] = regReadDword('NR_VertexLayout_NmlY')
     VertexLayout['nml'][2] = regReadDword('NR_VertexLayout_NmlZ')
-    VertexLayout['uv'][0] = regReadDword('NR_VertexLayout_TCU')
-    VertexLayout['uv'][1] = regReadDword('NR_VertexLayout_TCV')
+    VertexLayout['uvw'][0] = regReadDword('NR_VertexLayout_TCU')
+    VertexLayout['uvw'][1] = regReadDword('NR_VertexLayout_TCV')
 
     mdlscaler = regReadFloat('NR_TransformScale')
     g_ninjarotX = regReadFloat('NR_TransformRotateX')
@@ -691,6 +758,8 @@ def loadOptions():
     g_Tex0_FileLev = regReadDword('NR_MiscTextureNumber')
     g_flipUV = regReadDword('NR_MiscFlipUV')
     g_normalizeUV = regReadBool('NR_MiscNormalizeUV')
+    g_reverseNormals = regReadBool('NR_MiscReverseNormals')
+    ImportAnything = regReadBool('NR_MiscImportAnything')
 
     # cmds.intField(
     #    'NR_VertexLayout_PosX', edit=True, v=VertexLayout['pos'][0]
@@ -705,8 +774,8 @@ def loadOptions():
     cmds.intField('NR_VertexLayout_NmlX', edit=True, v=VertexLayout['nml'][0])
     cmds.intField('NR_VertexLayout_NmlY', edit=True, v=VertexLayout['nml'][1])
     cmds.intField('NR_VertexLayout_NmlZ', edit=True, v=VertexLayout['nml'][2])
-    cmds.intField('NR_VertexLayout_TCU', edit=True, v=VertexLayout['uv'][0])
-    cmds.intField('NR_VertexLayout_TCV', edit=True, v=VertexLayout['uv'][1])
+    cmds.intField('NR_VertexLayout_TCU', edit=True, v=VertexLayout['uvw'][0])
+    cmds.intField('NR_VertexLayout_TCV', edit=True, v=VertexLayout['uvw'][1])
 
     cmds.floatField('NR_TransformScale', edit=True, v=mdlscaler)
     cmds.floatField('NR_TransformRotateX', edit=True, v=g_ninjarotX)
@@ -720,6 +789,8 @@ def loadOptions():
     )
 
     cmds.checkBox('NR_MiscNormalizeUV', edit=True, v=g_normalizeUV)
+    cmds.checkBox('NR_MiscReverseNormals', edit=True, v=g_reverseNormals)
+    cmds.checkBox('NR_MiscImportAnything', edit=True, v=ImportAnything)
 
     if VertexLayout['autoMode'] is True:
         cmds.radioButton('NR_VertexRecognitionAuto', edit=True, sl=True)
@@ -740,8 +811,8 @@ def saveOptions():
     regSetDword("NR_VertexLayout_NmlX", VertexLayout['nml'][0])
     regSetDword("NR_VertexLayout_NmlY", VertexLayout['nml'][1])
     regSetDword("NR_VertexLayout_NmlZ", VertexLayout['nml'][2])
-    regSetDword("NR_VertexLayout_TCU", VertexLayout['uv'][0])
-    regSetDword("NR_VertexLayout_TCV", VertexLayout['uv'][1])
+    regSetDword("NR_VertexLayout_TCU", VertexLayout['uvw'][0])
+    regSetDword("NR_VertexLayout_TCV", VertexLayout['uvw'][1])
     regSetFloat("NR_TransformScale", mdlscaler)
     regSetFloat("NR_TransformRotateX", g_ninjarotX)
     regSetFloat("NR_TransformRotateY", g_ninjarotY)
@@ -750,6 +821,8 @@ def saveOptions():
     regSetDword("NR_MiscTextureNumber", g_Tex0_FileLev)
     regSetDword("NR_MiscFlipUV", g_flipUV)
     regSetBool("NR_MiscNormalizeUV", g_normalizeUV)
+    regSetBool("NR_MiscReverseNormals", g_reverseNormals)
+    regSetBool('NR_MiscImportAnything', ImportAnything)
 
 
 def setupRegister():
@@ -784,6 +857,8 @@ def setupRegister():
         regSetDword("NR_MiscTextureNumber", 0)
         regSetDword("NR_MiscFlipUV", 0)
         regSetBool("NR_MiscNormalizeUV", False)
+        regSetBool("NR_MiscReverseNormals", False)
+        regSetBool('NR_MiscImportAnything', False)
 
 
 createMenu()

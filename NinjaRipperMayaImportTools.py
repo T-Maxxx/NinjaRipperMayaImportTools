@@ -74,10 +74,10 @@ def readString(f):
 def printDebug(text):
     if g_debugMessages is True:
         print(text)
-        #mel.eval('print "{}"'.format(text))
+
 
 def printMessage(text):
-    mel.eval('print "// {} //"'.format(text))
+    mel.eval("print \"[NR]: {}\\n\"".format(text))
 
 
 def regReadFloat(keyName):
@@ -348,7 +348,7 @@ def importRip(path):
 
     printMessage(
         "File reading error: incomplete vertex/faces arrays " +
-        "or file not a 3D object. Use ripdumb.exe if you want to " + 
+        "or file not a 3D object. Use ripdump.exe if you want to " + 
         "get more information."
     )
 
@@ -356,22 +356,36 @@ def importRip(path):
 def ImportToMaya(vertexArray, polygonConnects, uvArray, texturePath, texture):
     global g_Mesh_Index
 
+    printMessage("Creating mesh...")
     polygonCounts = OpenMaya.MIntArray(polygonConnects.length() / 3, 3)
     mesh = OpenMaya.MFnMesh()
     transform = mesh.create(
         vertexArray.length(), polygonCounts.length(), vertexArray,
         polygonCounts, polygonConnects
     )
-    # UV map.
-    mesh.clearUVs()
-    mesh.setUVs(uvArray[0], uvArray[1])
+
     printDebug("connects cnt {}".format(polygonConnects.length()))
     printDebug("cnt {}".format(polygonCounts.length()))
     printDebug("u cnt {}".format(uvArray[0].length()))
     printDebug("v cnt {}".format(uvArray[1].length()))
-    mesh.assignUVs(polygonCounts, polygonConnects)  # Something wrong here - UV and face count mismatch
+
+    # UV map.
+    printMessage("Mapping UVs...")
+    mesh.setUVs(uvArray[0], uvArray[1])
+
+    try:
+        mesh.assignUVs(polygonCounts, polygonConnects)
+    except RuntimeError:
+        printDebug("mesh.assignUVs() failed. Assign manually...")
+        for i in range(0, polygonConnects.length()):
+            try:
+                mesh.assignUV(i / 3, i % 3, polygonConnects[i])
+            except RuntimeError:
+                printMessage("AssignUV failed: " + 
+                            "[{}] = {}".format(i, polygonConnects[i]))
 
     # Rename mesh.
+    printMessage("Renaming mesh...")
     transformDagPath = OpenMaya.MDagPath()
     OpenMaya.MDagPath.getAPathTo(transform, transformDagPath)
     meshName = cmds.rename(
@@ -380,6 +394,7 @@ def ImportToMaya(vertexArray, polygonConnects, uvArray, texturePath, texture):
     g_Mesh_Index = g_Mesh_Index + 1
 
     # Apply textures.
+    printMessage("Applying textures...")
     shader = cmds.shadingNode(
         "lambert", name="NinjaTexture_{}".format(g_Mesh_Index), asShader=True
     )
@@ -400,10 +415,12 @@ def ImportToMaya(vertexArray, polygonConnects, uvArray, texturePath, texture):
     )
 
     # Set vertex color to White.
+    printMessage("Forcing vertex color to white...")
     cmds.select(meshName)
     cmds.polyColorPerVertex(cdo=True, rgb=[1, 1, 1])
 
     # Apply transformations.
+    printMessage("Applying transformations...")
     cmds.setAttr("{}.rotateX".format(meshName), g_ninjarotX)
     cmds.setAttr("{}.rotateY".format(meshName), g_ninjarotY)
     cmds.setAttr("{}.rotateZ".format(meshName), g_ninjarotZ)
@@ -412,18 +429,22 @@ def ImportToMaya(vertexArray, polygonConnects, uvArray, texturePath, texture):
     cmds.setAttr("{}.scaleZ".format(meshName), mdlscaler)
 
     # Freeze transformations.
+    printMessage("Zeroing new transform values...")
     cmds.makeIdentity(apply=True, t=1, r=1, s=1, n=0, pn=1)
 
     # Scale UVs.
+    printMessage("Scaling UVs...")
     uvs = cmds.polyListComponentConversion(meshName, tuv=True)
     cmds.select(uvs)
     cmds.polyEditUV(su=uvscaler, sv=uvscaler*g_flipUV)
 
     # Normalize UV.
     if g_normalizeUV:
+        printMessage("Normalizing UVs...")
         cmds.polyNormalizeUV(nt=1, pa=True, centerOnTile=True)
 
     # Merge duplicates.
+    printMessage("Removing duplicate vertex...")
     cmds.select(cl=True)
     cmds.select(meshName)
     cmds.polyMergeVertex(d=0.01, am=True, ch=1)
@@ -431,7 +452,7 @@ def ImportToMaya(vertexArray, polygonConnects, uvArray, texturePath, texture):
 
     # Reverse normals (First met in MWR)
     if g_reverseNormals:
-        printDebug("Reversing Normals...")
+        printMessage("Reversing normals...")
         cmds.select(cl=True)
         cmds.select(meshName)
         cmds.polyNormal(meshName, ch=1)

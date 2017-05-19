@@ -781,6 +781,7 @@ def loadOptions():
     g_flipUV = regReadDword('NR_MiscFlipUV')
     g_normalizeUV = regReadBool('NR_MiscNormalizeUV')
     g_reverseNormals = regReadBool('NR_MiscReverseNormals')
+
     ImportAnything = regReadBool('NR_MiscImportAnything')
 
     # cmds.intField(

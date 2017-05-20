@@ -1,10 +1,9 @@
 import maya.cmds as cmds
+import maya.OpenMaya as OpenMaya
+import maya.mel as mel
 import struct
 import os
 import os.path
-import maya.OpenMaya as OpenMaya
-import maya.cmds as cmds
-import maya.mel as mel
 import unicodedata
 import _winreg as reg
 
